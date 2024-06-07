@@ -1,4 +1,4 @@
-import { ComfyUIErrorTypes, ComfyUIExecuteError, NODE_REROUTE, PersistedWorkflowDocument, SUBFLOW_WIDGET_TYPE_NAME, Widgets } from "../types";
+import { ComfyUIErrorTypes, ComfyUIExecuteError, Input, NODE_REROUTE, PersistedWorkflowDocument, SUBFLOW_WIDGET_TYPE_NAME, Widgets } from "../types";
 
 /**
  * Utility to parse comfyui workflow errors
@@ -33,30 +33,74 @@ export function staticCheckWorkflowErrors(
     if (!widget) {
       error.errors.push({
         type: ComfyUIErrorTypes.widget_not_found,
+        static: true,
         message: `Widget \`${sdnode.widget}\` not found`,
         details: `${sdnode.widget}`,
         extra_info: {
           widget: sdnode.widget
         }
       });
-      flowError.node_errors[id] = error as any;
     }
 
-    if (widget && widget.name === "LoadImage") {
-      const image = sdnode.fields.image;
-      if (image) {
-        const options = widget.input.required.image[0] as [string];
-        const parsedImage = image.split('/');
-        // if parsedImage length > 1 , it is a image from temporary storage
-        if (options.indexOf(image) < 0 && parsedImage.length === 1) {
-          error.errors.push({
-            type: ComfyUIErrorTypes.image_not_in_list,
-            message: `Image ${image} not in list`,
-            details: `[ ${options.join(", ")} ]`,
-          });
-          flowError.node_errors[id] = error;
+    if (widget) {
+      // check required fields
+      const requiredFields = Object.keys(widget.input.required);
+      const inputKeys = (sdnode.inputs || []).map(input => input.name);
+      requiredFields.forEach(field => {
+        const value = sdnode.fields[field];
+        const input = widget.input.required[field];
+        if (inputKeys.includes(field)) {
+          return;
         }
-      }
+
+        // Skip upload check
+        if (field === "upload") {
+          return
+        }
+
+        if (!value) {
+          const defaultValue = ((input[1] ?? {}) as any).default;
+          // check is default value exist
+          if (defaultValue !== undefined) {
+            return;
+          }
+          error.errors.push({
+            type: ComfyUIErrorTypes.required_field_missing,
+            static: true,
+            message: `Field \`${field}\` is required`,
+            details: `Field \`${field}\` is required`,
+            extra_info: {
+              field: field,
+              widget: sdnode.widget
+            }
+          });
+        } else {
+          // Skip LoadImage check
+          // if (widget.name === "LoadImage" && field === "image") {
+          //   return
+          // }
+          if (Input.isList(input)) {
+            const options = input[0];
+            if (options.indexOf(value) < 0) {
+              error.errors.push({
+                type: ComfyUIErrorTypes.value_not_in_list,
+                static: true,
+                message: `Field \`${field}\` not avaliable`,
+                details: `Available options: [ ${options.join(", ")} ]`,
+                extra_info: {
+                  field: field,
+                  widget: sdnode.widget
+                }
+              });
+            }
+          }
+        }
+      });
+
+    }
+
+    if (error.errors.length > 0) {
+      flowError.node_errors[id] = error as any;
     }
   });
   return flowError;

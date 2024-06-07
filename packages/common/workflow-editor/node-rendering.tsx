@@ -17,12 +17,12 @@ export function getNodeRenderInfo(node: SDNode, widget: Widget): WorkflowNodeRen
   let params: { property: string, input: Input }[] = []
   let inputs = node.inputs || [];
   let outputs = node.outputs || [];
-  let bypass = node.bypass || false;
+  let enabled = node.enabled || false;
 
   if (node.parent) {
     const parent = useAppStore.getState().graph[node.parent];
-    if (parent && parent.bypass) {
-      bypass = true;
+    if (parent && parent.enabled) {
+      enabled = true;
     }
   }
 
@@ -34,7 +34,11 @@ export function getNodeRenderInfo(node: SDNode, widget: Widget): WorkflowNodeRen
   }
 
   if ((widget?.input?.required?.image?.[1] as any)?.image_upload === true) {
-    widget.input.required.upload = ["IMAGEUPLOAD"];
+    widget.input.required.upload = ["IMAGEUPLOAD", {type: "image"}];
+  }
+
+  if (widget?.input?.required?.video && Input.isList(widget?.input?.required?.video)) {
+    widget.input.required.upload = ["IMAGEUPLOAD", { type: "video" }];
   }
 
   for (const [property, input] of Object.entries(widget?.input?.required || {})) {
@@ -92,16 +96,16 @@ export function getNodeRenderInfo(node: SDNode, widget: Widget): WorkflowNodeRen
   let nodeColor = node.color || SDNODE_DEFAULT_COLOR.color;
   let nodeBgColor = node.bgcolor || SDNODE_DEFAULT_COLOR.bgcolor;
 
-  const title = node.title || dt(`Nodes.${widget?.name}.title`, widget?.name);
+  const title = node.title || dt(`Nodes.${widget?.name}.title`, widget?.display_name);
   return {
-    title: `${title}${bypass ? " (Disabled)" : ""}`,
+    title: `${title}${enabled ? " (Disabled)" : ""}`,
     widget,
     inputs,
     params,
     outputs,
     nodeColor,
     nodeBgColor,
-    bypass
+    enabled
   }
 }
 
@@ -115,12 +119,12 @@ export function getPrimitiveNodeRenderingInfo(node: SDNode, widget: Widget): Wor
   const nodeColor = node.color || SDNODE_DEFAULT_COLOR.color;
   const nodeBgColor = node.bgcolor || SDNODE_DEFAULT_COLOR.bgcolor;
   const title = node.title || widget?.name;
-  let bypass = node.bypass || false;
+  let enabled = node.enabled || false;
 
   if (node.parent) {
     const parent = useAppStore.getState().graph[node.parent];
     if (parent && parent.widget === NODE_REROUTE) {
-      bypass = parent.bypass || bypass;
+      enabled = parent.enabled || enabled;
     }
   }
 
@@ -138,7 +142,7 @@ export function getPrimitiveNodeRenderingInfo(node: SDNode, widget: Widget): Wor
       params: [],
       nodeBgColor,
       nodeColor,
-      bypass
+      enabled
     }
   }
 
@@ -168,7 +172,7 @@ export function getPrimitiveNodeRenderingInfo(node: SDNode, widget: Widget): Wor
 
 
   return {
-    title: `${title}${bypass ? " (Disabled)" : ""}`,
+    title: `${title}${enabled ? " (Disabled)" : ""}`,
     widget,
     inputs: [],
     outputs: [{
@@ -180,7 +184,7 @@ export function getPrimitiveNodeRenderingInfo(node: SDNode, widget: Widget): Wor
     params: refParams,
     nodeBgColor,
     nodeColor,
-    bypass
+    enabled
   }
 }
 

@@ -1,7 +1,9 @@
 import exifr from 'exifr';
-import { PersistedWorkflowConnection, PersistedWorkflowDocument, PersistedWorkflowNode, ComfyUIWorkflow, ComfyUIWorkflowConnection, ComfyUIWorkflowGroup, ComfyUIWorkflowNode, Widget, Input } from '../types';
+import { PersistedWorkflowConnection, PersistedWorkflowDocument, PersistedWorkflowNode, ComfyUIWorkflow, ComfyUIWorkflowConnection, ComfyUIWorkflowGroup, ComfyUIWorkflowNode, Widget, Input, NODE_REROUTE } from '../types';
 import { Widgets, NODE_PRIMITIVE } from '../types';
 import { uuid } from '../utils';
+import { reversePrompt } from './prompt';
+import { layoutWorkflow } from './workflow-layout';
 
 /**
  *  1) Transform comflowyspace workflow JSON format to comfyui JSON format
@@ -36,9 +38,25 @@ export function writeWorkflowToFile(workflow: PersistedWorkflowDocument): void {
   a.click()
 }
 
-function safeLoadWorkflow(workflow: any, widgets: Widgets): PersistedWorkflowDocument {
+async function safeLoadWorkflow(workflow: any, widgets: Widgets): Promise<PersistedWorkflowDocument> {
   console.log("source workflow", workflow);
   if (!workflow || !workflow.nodes) {
+    const keys = Object.keys(workflow);
+    if (keys.length === 0) {
+      throw new Error('Invalid workflow file. Please check if the file is correct workflow format.')
+    }
+    const key0 = keys[0];
+    const item = workflow[key0];
+    //
+    if (item.class_type && item.inputs) {
+      const prompt = workflow as Record<string, any>
+      const workflowDoc = reversePrompt(prompt, widgets);
+      console.log("workflowDoc", workflowDoc);
+      await layoutWorkflow(workflowDoc, {
+        algorithm: 'mrtree'
+      });
+      return workflowDoc;
+    }
     throw new Error('Invalid workflow file. Please check if the file is correct workflow format.')
   }
   // if (workflow.version !== 1) {
@@ -184,7 +202,7 @@ export function comfyUIWorkflowToPersistedWorkflowDocument(comfyUIWorkflow: Comf
     const sourceNodeId = link[1] + "";
     const sourceHandleId = link[2];
     const targetNodeId = link[3] + "";
-    const targetHandleId = link[4];
+    let targetHandleId = link[4];
     const connectionType = link[5];
 
     const sourceNode = nodesMap[sourceNodeId];
@@ -219,10 +237,17 @@ export function comfyUIWorkflowToPersistedWorkflowDocument(comfyUIWorkflow: Comf
       }
       return ret;
     });
+    
+    if (targetHandleId === -1 && targetNode.value.widget === NODE_REROUTE) {
+      targetHandleId = 0;
+    }
+
     const inputKey = inputs[targetHandleId];
+
     if (!inputKey) {
       throw new Error("inputKey not found");
     }
+
     const targetHandle = inputKey.toUpperCase();
 
     return {

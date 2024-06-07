@@ -1,5 +1,5 @@
 import { getComfyUIBackendUrl } from '../config'
-import { PersistedWorkflowConnection, PersistedWorkflowDocument, PersistedWorkflowNode, ComfyUIExecuteError, Input, Widget, type NodeId, NODE_REROUTE, NODE_PRIMITIVE, NODE_GROUP } from '../types'
+import { PersistedWorkflowConnection, PersistedWorkflowDocument, PersistedWorkflowNode, ComfyUIExecuteError, Input, Widget, type NodeId, NODE_REROUTE, NODE_PRIMITIVE, NODE_GROUP, SDNode } from '../types'
 import { persistedWorkflowDocumentToComfyUIWorkflow } from './export-import'
 import {Node} from "./bridge";
 import { KEYS, t } from "../i18n";
@@ -37,7 +37,7 @@ export async function sendPrompt(prompt: PromptRequest): Promise<PromptResponse>
         },
       }
     }
-    const error = resp.status !== 200 ? await resp.json() : undefined
+    const error = await resp.json()
     return { error }
   } catch (err: any) {
     return {
@@ -53,7 +53,7 @@ export async function sendPrompt(prompt: PromptRequest): Promise<PromptResponse>
 }
 
 /**
- * if node has bypass properties, skip the connection and the node
+ * if node has enabled properties, skip the connection and the node
  * @param workflow 
  * @param widgets 
  * @param clientId 
@@ -66,12 +66,12 @@ export function createPrompt(workflowSource: PersistedWorkflowDocument, widgets:
 
   const nodes = Object.entries(workflow.nodes)
 
-  // set bypass for group nodes;
+  // set enabled for group nodes;
   nodes.forEach(([pid, node]) => {
-    if (node.value.widget === NODE_GROUP && node.value.bypass) {
+    if (node.value.widget === NODE_GROUP && node.value.enabled) {
       nodes.forEach(([id, node]) => {
         if (node.value.parent === pid) {
-          node.value.bypass = true;
+          node.value.enabled = true;
         }
       });
     }
@@ -83,7 +83,7 @@ export function createPrompt(workflowSource: PersistedWorkflowDocument, widgets:
       continue
     }
 
-    if (node.value.bypass) {
+    if (node.value.enabled) {
       continue
     }
 
@@ -107,7 +107,7 @@ export function createPrompt(workflowSource: PersistedWorkflowDocument, widgets:
       }
     }
 
-    if (widget.name === "SaveImage") {
+    if (Widget.isSaveImageNode(widget.name)) {
       const filename_prefix = fields.filename_prefix || "";
       fields.filename_prefix = `${filename_prefix}_${uuid().substring(0, 4)}`;
     }
@@ -191,3 +191,85 @@ export function createPrompt(workflowSource: PersistedWorkflowDocument, widgets:
   }
 }
 
+export function reversePrompt(prompt: Record<NodeId, Node>, widgets: Record<string, Widget>): PersistedWorkflowDocument {
+ 
+  const data: Record<NodeId, PersistedWorkflowNode> = {}
+
+  // Reconstruct nodes from prompt
+  for (const [id, node] of Object.entries(prompt)) {
+    const widget = widgets[node.class_type];
+    // Reconstruct fields from inputs
+    const fields: any = {};
+    for (const [inputKey, inputValue] of Object.entries(node.inputs)) {
+      if (Array.isArray(inputValue) && inputValue.length === 2) {
+        continue;
+      }
+      // skip image type
+      if (inputValue.length > 300) {
+        continue
+      }
+      fields[inputKey] = inputValue;
+    }
+
+    if (!widget) {
+      data[id] = {
+        id,
+        position: { x: 0, y: 0 },
+        dimensions: {
+          width: 240,
+          height: 80
+        },
+        value: {
+          widget: node.class_type,
+          fields,
+          inputs: [],
+          outputs: []
+        }
+      }
+      continue;
+    }
+
+    const sdnode = SDNode.fromWidget(widget);
+    data[id] = {
+      id,
+      position: { x: 0, y: 0 },
+      dimensions: {
+        width: 240,
+        height: 80
+      },
+      value: {
+        ...sdnode,
+        fields
+      },
+    }
+  }
+
+  // Reconstruct connections from prompt
+  const connections: PersistedWorkflowConnection[] = [];
+  for (const [id, node] of Object.entries(prompt)) {
+    for (const [inputKey, inputValue] of Object.entries(node.inputs)) {
+      const source = Array.isArray(inputValue) ? inputValue[0] : undefined;
+      const sourceHandle = Array.isArray(inputValue) ? inputValue[1] : undefined;
+      if (source && sourceHandle !== undefined) {
+        const widget = widgets[data[source].value.widget];
+        const output = widget && widgets[data[source].value.widget].output[sourceHandle];
+        if (output) {
+          connections.push({
+            id: uuid(),
+            source,
+            sourceHandle: output,
+            target: id,
+            targetHandle: inputKey.toUpperCase(),
+          });
+        }
+      }
+    }
+  }
+
+  return {
+    id: uuid(),
+    title: "Untitled",
+    nodes: data,
+    connections,
+  }
+}

@@ -1,13 +1,15 @@
 export enum ComfyUIErrorTypes {
   widget_not_found = "widget_not_found",
   value_not_in_list = "value_not_in_list",
-  image_not_in_list = "image_not_in_list"
+  image_not_in_list = "image_not_in_list",
+  required_field_missing = "required_field_missing"
 }
 
 export type ComfyUIError = {
   type?: ComfyUIErrorTypes | string;
   message: string;
   details?: string;
+  static?: boolean;
   extra_info?: {
     input_name: string;
     input_config: string[][] | any;

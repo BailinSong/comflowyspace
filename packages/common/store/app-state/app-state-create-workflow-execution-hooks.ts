@@ -28,7 +28,7 @@ export default function createHook(set: AppStateSetter, get: AppStateGetter): Pa
 
       // update control_after_generated node
       const onNodeFieldChange = state.onNodeFieldChange;
-      const MAX_VALUE = 18446744073709551615;
+      
       state.nodes.forEach(node => {
         const widget = node.data.widget as Widget;
         const sdnode = node.data.value as SDNode;
@@ -36,23 +36,12 @@ export default function createHook(set: AppStateSetter, get: AppStateGetter): Pa
         if (seedFieldName) {
           const control_after_generated = sdnode.fields.control_after_generated;
           const oldSeed = sdnode.fields[seedFieldName];
-          let newSeed = oldSeed;
-          switch (control_after_generated) {
-            case "randomnized":
-            case ContrlAfterGeneratedValues.Randomnized:
-              newSeed = Math.random() * MAX_VALUE;
-              break;
-            case ContrlAfterGeneratedValues.Incremental:
-              newSeed = Math.min(MAX_VALUE, oldSeed + 1);
-              break;
-            case ContrlAfterGeneratedValues.Decremental:
-              newSeed = Math.max(-1, oldSeed - 1);
-            default:
-              break;
-          }
+          let newSeed = Widget.getControlledSeedValue(control_after_generated, oldSeed);
           onNodeFieldChange(node.id, seedFieldName, newSeed);
         }
       });
+
+      console.log("res", res);
       const newState = AppState.attatchStaticCheckErrors(get(), res.error || {} as ComfyUIExecuteError)
       set(newState);
       if (newState.promptError?.error || newState.promptError?.node_errors) {
@@ -66,7 +55,7 @@ export default function createHook(set: AppStateSetter, get: AppStateGetter): Pa
       return res
     },
     updateErrorCheck: () => {
-      set(AppState.attatchStaticCheckErrors(get()));
+      set(AppState.attatchStaticCheckErrors(get(), get().promptError));
     },
     onNodeInProgress: (id, progress = 0) => {
       const { graph, subflowStore } = get();
@@ -91,15 +80,17 @@ export default function createHook(set: AppStateSetter, get: AppStateGetter): Pa
        * if find node in graph, the node is in main workflow, save to state and storage
        * else if the node is a subflow‘s sub node, then set the state to the subflow
        */
+      const widgetName = node?.data?.widget.name;
+      const isSaveImageNode = Widget.isSaveImageNode(widgetName);
       if (graph[id]) {
         st.editorEvent.emit({ type: ComfyUIEvents.ImageSave, data: { id, images } });
         temporalSaveImage(id, images);
-        if (node?.data?.widget.name === "SaveImage") {
+        if (isSaveImageNode) {
           persistSaveImage(id, images);
         }
       } else {
         subflowStore.getState().onImageSave(id, images);
-        if (node?.data?.widget.name !== "SaveImage") {
+        if (!isSaveImageNode) {
           return;
         }
         const { relations } = subflowStore.getState();
@@ -125,7 +116,9 @@ export default function createHook(set: AppStateSetter, get: AppStateGetter): Pa
         const st = get();
         const { nodes, graph, subflowStore } = st;
         const node = nodes.find(node => node.id === id);
-        if (node?.data?.widget.name !== "SaveImage") {
+        const widgetName = node?.data?.widget.name;
+        const isSaveImageNode = Widget.isSaveImageNode(widgetName);
+        if (!isSaveImageNode) {
           return;
         }
         const last_edit_time = +new Date();
